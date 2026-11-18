@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hầm xe chống ngập</title>
+<style>
+:root{--bg:#f2f5f3;--ink:#16241b;--mut:#66756b;--line:#dde5df;--g:#2a7a4b;--o:#d4480f;--b:#1d78b5}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+.wrap{max-width:920px;margin:0 auto;padding:20px 16px 60px}
+header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px}
+h1{margin:0;font-size:26px} h2{margin:0 0 10px;font-size:17px}
+.mut{color:var(--mut);font-size:14px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#b5bdb7;margin-right:6px}
+.dot.on{background:#2a9d5c}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:14px}
+.grid .card{margin:0}
+.big{font-size:40px;font-weight:700;line-height:1.1}.big small{font-size:20px}
+.bar{height:10px;background:#e7eee9;border-radius:6px;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;width:0;background:var(--b);transition:width .6s}
+.bar i.warn{background:var(--o)}
+.pill{display:inline-block;padding:2px 12px;border-radius:99px;font-weight:600;background:#e7eee9}
+.pill.g{background:#d9f0e2;color:var(--g)}.pill.o{background:#fde5d9;color:var(--o)}.pill.b{background:#dcecf8;color:var(--b)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+button{border:0;border-radius:10px;padding:10px 16px;font-size:15px;color:#fff;cursor:pointer;background:var(--b)}
+button.o{background:var(--o)}button.g{background:var(--g)}button.n{background:#6b7a70}
+button:active{opacity:.8}
+#msg{margin-top:10px;font-size:14px;min-height:20px}#msg.bad{color:var(--o)}#msg.ok{color:var(--g)}
+.alert{padding:6px 0;border-bottom:1px solid var(--line);font-size:15px}.alert time{color:var(--mut);margin-right:10px;font-size:13px}
+.alert.bad{color:var(--o);font-weight:600}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:600}
+.slide{margin-top:12px}.slide label{display:block;font-size:14px;margin-bottom:2px}input[type=range]{width:100%;accent-color:#e8590c}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Hầm xe chống ngập</h1><div class="mut">Nhóm 8 · Topic: <b id="topic">–</b></div></div>
+    <div class="mut"><span class="dot" id="dot"></span><span id="conn">Đang kết nối MQTT...</span><br>Cập nhật lúc: <b id="upd">–</b></div>
+  </header>
+
+  <div class="grid">
+    <div class="card"><div class="mut">Cường độ mưa</div>
+      <div class="big"><span id="rainV">–</span><small>%</small></div>
+      <div class="bar"><i id="rainBar"></i></div><div class="mut" id="rainS">&nbsp;</div></div>
+    <div class="card"><div class="mut">Mực nước trong hầm</div>
+      <div class="big"><span id="waterV">–</span><small>%</small></div>
+      <div class="bar"><i id="waterBar"></i></div><div class="mut" id="waterS">&nbsp;</div></div>
+    <div class="card"><div class="mut">Gác chắn</div>
+      <div style="margin:6px 0"><span class="pill" id="gate">–</span> <span class="pill" id="mode">–</span></div>
+      <div class="mut">Bơm: <span class="pill" id="pump">–</span></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Điều khiển (gửi qua MQTT)</h2>
+    <div class="btns">
+      <button class="o" onclick="send('close')">Đóng chắn</button>
+      <button class="g" onclick="send('open')">Mở chắn</button>
+      <button class="n" onclick="send('auto')">Chế độ tự động</button>
+      <button class="n" onclick="send('pumpreset')">Đặt lại lỗi bơm</button>
+    </div>
+    <div class="slide"><label for="ang">Góc gác chắn: <b id="angV">–</b>°</label><input id="ang" type="range" min="0" max="90" step="1" value="0"></div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card"><h2>Cảnh báo trực tiếp (MQTT)</h2><div id="alerts"><span class="mut">Chưa có cảnh báo.</span></div></div>
+
+  <div class="card"><h2>Dữ liệu cảm biến (HTTP, 5 giây/lần)</h2>
+    <div class="scroll"><table><thead><tr><th>Giờ</th><th>Mưa %</th><th>Nước hầm %</th><th>Gác chắn</th><th>Bơm</th><th>Chế độ</th></tr></thead><tbody id="tData"></tbody></table></div></div>
+
+  <div class="card"><h2>Cảnh báo và lệnh (lưu MySQL)</h2>
+    <div class="scroll"><table><thead><tr><th>Giờ</th><th>Loại</th><th>Nội dung</th></tr></thead><tbody id="tLog"></tbody></table></div>
+    <div class="mut" id="dbMsg" style="margin-top:6px">Tự làm mới mỗi 5 giây. Bản đầy đủ: <a href="db.php">db.php</a></div></div>
+</div>
+
+<script src="settings.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.3.4/dist/mqtt.min.js"></script>
+<script>
+const C = window.APP_CONFIG || {};
+const TOPIC = C.topic || 'nhom8/chongngap';
+const $ = id => document.getElementById(id);
+const clock = t => new Date(Number(t)).toLocaleTimeString('vi-VN');
+let client = null, lastOut = 0, sentAt = 0, connectedAt = 0, live = [];
+$('topic').textContent = TOPIC;
+
+function setConn(ok, text){ $('dot').className = 'dot' + (ok ? ' on' : ''); $('conn').textContent = text; }
+function msg(text, cls){ const m = $('msg'); m.textContent = text; m.className = cls || ''; }
+
+function connect(){
+  if (typeof mqtt === 'undefined') { setConn(false, 'Không tải được thư viện MQTT (cần Internet)'); return; }
+  client = mqtt.connect(C.mqttWs, {
+    username: C.mqttUser || undefined, password: C.mqttPass || undefined,
+    reconnectPeriod: 3000, connectTimeout: 5000, clientId: 'web-' + Math.random().toString(16).slice(2, 8)
+  });
+  client.on('connect', () => {
+    connectedAt = Date.now(); setConn(true, 'Đã kết nối broker MQTT');
+    client.subscribe([TOPIC + '/out', TOPIC + '/alert']);
+  });
+  client.on('close', () => setConn(false, 'Mất kết nối MQTT'));
+  client.on('message', (t, m) => {
+    const kind = t.split('/').pop(), text = m.toString();
+    if (kind === 'out') { try { show(JSON.parse(text)); } catch (e) {} }
+    else if (kind === 'alert') { addAlert(text); setTimeout(loadTables, 2500); }
+  });
+}
+
+// ---- Gửi lệnh: ESP32 nghe ở TOPIC/in ----
+const CMDS = {
+  close: [{ gate: 'CLOSE' }, 'Đóng chắn'], open: [{ gate: 'OPEN' }, 'Mở chắn'],
+  auto: [{ mode: 'AUTO' }, 'Chế độ tự động'], pumpreset: [{ pump: 'RESET' }, 'Đặt lại lỗi bơm']
+};
+function send(cmd){
+  if (!client || !client.connected) { msg('Chưa kết nối MQTT, chưa gửi được lệnh.', 'bad'); return; }
+  const [body, label] = CMDS[cmd]; const out = Object.assign({}, body);
+  if (C.key) out.key = C.key;
+  client.publish(TOPIC + '/in', JSON.stringify(out));
+  fetch('api/mqtt_log.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'cmd', msg: JSON.stringify(body) }) }).then(() => setTimeout(loadTables, 500)).catch(() => {});
+  sentAt = Date.now(); msg('Đã gửi: ' + label + ' ...');
+  // ESP32 gửi trạng thái ngay khi đổi và tối đa 2 giây/lần: sau 4 giây mà không có tin nào là ESP32 không nghe thấy
+  setTimeout(() => {
+    if (lastOut >= sentAt) msg('ESP32 đã nhận lệnh: ' + label, 'ok');
+    else msg('ESP32 không phản hồi. Kiểm tra: topic trong settings.js phải trùng MQTT_BASE, ESP32 đã vào WiFi và MQTT chưa.', 'bad');
+  }, 4000);
+}
+
+// ---- Hiển thị trạng thái nhận từ TOPIC/out ----
+// ---- Thanh trượt góc servo: gửi {"angle":N} tới TOPIC/in ----
+const AMIN = C.angleMin ?? 0, AMAX = C.angleMax ?? 90;
+$('ang').min = AMIN; $('ang').max = AMAX;
+let dragging = false, lastSendA = 0;
+function sendAngle(v, final){
+  if (!client || !client.connected) { if (final) msg('Chưa kết nối MQTT, chưa gửi được lệnh.', 'bad'); return; }
+  lastSendA = Date.now();
+  const o = { angle: Number(v) }; if (C.key) o.key = C.key;
+  client.publish(TOPIC + '/in', JSON.stringify(o));
+  if (!final) return;
+  fetch('api/mqtt_log.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'cmd', msg: '{"angle":' + v + '}' }) }).then(() => setTimeout(loadTables, 500)).catch(() => {});
+  sentAt = Date.now(); msg('Đã gửi: góc ' + v + '°');
+  setTimeout(() => { if (lastOut >= sentAt) msg('ESP32 đã quay gác chắn tới ' + v + '°', 'ok'); else msg('ESP32 không phản hồi. Kiểm tra topic và kết nối của ESP32.', 'bad'); }, 4000);
+}
+$('ang').addEventListener('input', e => { dragging = true; $('angV').textContent = e.target.value; if (Date.now() - lastSendA > 250) sendAngle(e.target.value, false); });
+$('ang').addEventListener('change', e => { dragging = false; sendAngle(e.target.value, true); });
+function syncAngle(s){
+  if (typeof s.angle !== 'number') return;
+  if (!dragging) { $('ang').value = s.angle; $('angV').textContent = s.angle; }
+  const arm = $('arm');   // thanh chắn trên hình quay theo góc thật (nếu trang có hình)
+  if (arm && s.aOpen !== s.aClosed) {
+    const th = Math.max(-20, Math.min(90, 80 * (s.angle - s.aClosed) / (s.aOpen - s.aClosed)));
+    arm.style.transform = 'rotate(' + th + 'deg)';
+  }
+}
+
+function show(s){
+  syncAngle(s);
+  lastOut = Date.now(); setConn(true, 'Đã kết nối, ESP32 đang gửi dữ liệu');
+  $('rainV').textContent = s.rainPct; $('rainBar').style.width = s.rainPct + '%';
+  $('waterV').textContent = s.waterPct; $('waterBar').style.width = s.waterPct + '%';
+  $('waterBar').className = s.pump ? 'warn' : '';
+  $('rainS').textContent = (s.rain ? 'Đang mưa' : 'Không mưa') + ' (giá trị thô ' + s.rainRaw + ')';
+  $('waterS').textContent = (s.pump ? 'Nước dâng, đang bơm' : 'Bình thường') + ' (giá trị thô ' + s.waterRaw + ')';
+  const closed = s.gate === 'closed';
+  $('gate').textContent = closed ? 'ĐÓNG (chặn xe)' : 'MỞ'; $('gate').className = 'pill ' + (closed ? 'o' : 'g');
+  $('mode').textContent = s.mode === 'auto' ? 'Tự động' : 'Thủ công'; $('mode').className = 'pill b';
+  $('pump').textContent = s.fault ? 'LỖI - đã ngắt' : (s.pump ? 'Đang chạy' : 'Tắt');
+  $('pump').className = 'pill ' + (s.fault ? 'o' : (s.pump ? 'b' : ''));
+  $('upd').textContent = new Date().toLocaleTimeString('vi-VN');
+}
+
+function addAlert(text){
+  live.unshift({ t: Date.now(), x: text }); live = live.slice(0, 6);
+  const box = $('alerts'); box.innerHTML = '';
+  live.forEach(a => {
+    const d = document.createElement('div'); d.className = 'alert' + (a.x.includes('CẢNH BÁO') ? ' bad' : '');
+    const t = document.createElement('time'); t.textContent = clock(a.t);
+    const x = document.createElement('span'); x.textContent = a.x; d.append(t, x); box.append(d);
+  });
+}
+
+// ---- Bảng lấy từ MySQL qua HTTP ----
+function fill(id, rows){
+  const body = $(id); body.innerHTML = '';
+  rows.forEach(r => { const tr = document.createElement('tr');
+    r.forEach(v => { const td = document.createElement('td'); td.textContent = v; tr.append(td); }); body.append(tr); });
+}
+async function loadTables(){
+  try {
+    const d = await (await fetch('api/data.php')).json();
+    fill('tData', d.slice(-12).reverse().map(r => [clock(r.time), r.rainPct, r.waterPct,
+      r.gate === 'closed' ? 'ĐÓNG' : 'MỞ', r.fault ? 'LỖI' : (r.pump ? 'BẬT' : 'TẮT'), r.mode === 'auto' ? 'Tự động' : 'Thủ công']));
+    const kind = { alert: 'Cảnh báo', cmd: 'Lệnh' };
+    const a = await (await fetch('api/mqtt_log.php')).json();
+    fill('tLog', a.slice(-12).reverse().map(r => [clock(r.time), kind[r.type] || r.type, r.msg]));
+    $('dbMsg').innerHTML = 'Tự làm mới mỗi 5 giây. Bản đầy đủ: <a href="db.php">db.php</a>';
+  } catch (e) {
+    $('dbMsg').textContent = 'Không đọc được database: mở trang qua http://localhost/chongngap/ và bật Apache + MySQL trong XAMPP.';
+  }
+}
+
+// Cảnh báo khi ESP32 im lặng
+setInterval(() => {
+  if (!client || !client.connected) return;
+  const ref = lastOut || connectedAt;
+  if (ref && Date.now() - ref > 12000) setConn(true, 'Đã kết nối broker nhưng KHÔNG nhận được dữ liệu ESP32 (kiểm tra topic)');
+}, 2000);
+setInterval(loadTables, 5000);
+loadTables(); connect();
+</script>
+</body>
+</html>
